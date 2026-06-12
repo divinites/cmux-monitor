@@ -136,6 +136,18 @@ while true; do
     fi
   done
 
+  # ---- Periodic re-detection: pick up new panes every 60s ----
+  if [ $(( poll_count % 30 )) -eq 0 ]; then
+    detect_targets
+    TARGET_COUNT=${#TARGET_WS[@]}
+    # Reset per-pane state for clean slate (minimal downside: one extra Enter within 15s cooldown)
+    for ((j=0; j<TARGET_COUNT; j++)); do
+      k2="w${TARGET_WS[$j]}s${TARGET_SF[$j]}"
+      eval "fail_cnt_${k2}=0"
+      eval "breaker_ts_${k2}=0"
+    done
+  fi
+
   # ---- Self-healing ----
   if [ "$any_success" -eq 0 ]; then
     # Path 1: ALL panes dead → restart to get fresh socket
