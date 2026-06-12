@@ -115,8 +115,9 @@ while true; do
     fi
 
     # ---- Check 2: Real confirmation prompts (not status bar) ----
-    if echo "$screen" | grep -qiE '(do you want to (proceed|continue|run|execute|confirm|apply|make)|would you like to|proceed\?|continue\?|yes/no|\[y/n\]|\(y/n\)|accept\?|approve\?|confirm\?|❯.*[Yy]es)' 2>/dev/null; then
-      match_line=$(echo "$screen" | grep -inE '(do you want to (proceed|continue|run|execute|confirm|apply|make)|would you like to|proceed\?|continue\?|yes/no|\[y/n\]|\(y/n\)|accept\?|approve\?|confirm\?|❯.*[Yy]es)' 2>/dev/null | head -1)
+    # Matches Claude Code (❯ 1. Yes), Codex (› 1. Yes, proceed), and common patterns
+    if echo "$screen" | grep -qiE '(do you want to (proceed|continue|run|execute|confirm|apply|make)|would you like to|proceed\?|continue\?|yes/no|\[y/n\]|\(y/n\)|accept\?|approve\?|confirm\?|[❯›].*[Yy]es|press enter to confirm)' 2>/dev/null; then
+      match_line=$(echo "$screen" | grep -inE '(do you want to (proceed|continue|run|execute|confirm|apply|make)|would you like to|proceed\?|continue\?|yes/no|\[y/n\]|\(y/n\)|accept\?|approve\?|confirm\?|[❯›].*[Yy]es|press enter to confirm)' 2>/dev/null | head -1)
       if echo "$match_line" | grep -q "accept edits on"; then
         continue  # skip OMC status bar
       fi
@@ -135,8 +136,9 @@ while true; do
     fi
   done
 
-  # ---- Self-healing: restart if all panes dead ----
+  # ---- Self-healing ----
   if [ "$any_success" -eq 0 ]; then
+    # Path 1: ALL panes dead → restart to get fresh socket
     global_fail_streak=$(( global_fail_streak + 1 ))
     if [ $global_fail_streak -ge 3 ]; then
       echo "[$(date '+%H:%M:%S')] ALL panes dead for ${global_fail_streak} cycles (${TARGET_COUNT} targets) — restarting monitor" | tee -a "$LOG"
@@ -144,6 +146,28 @@ while true; do
     fi
   else
     global_fail_streak=0
+    # Path 2: Check for stale workspaces (single pane failing too long)
+    for ((i=0; i<TARGET_COUNT; i++)); do
+      key="w${TARGET_WS[$i]}s${TARGET_SF[$i]}"
+      eval "fc=\$fail_cnt_${key}"
+      fc=${fc:-0}
+      if [ $fc -ge 15 ]; then
+        echo "[$(date '+%H:%M:%S')] w${TARGET_WS[$i]}s${TARGET_SF[$i]} stale (fail_cnt=$fc) — re-detecting targets" >> "$LOG"
+        detect_targets
+        TARGET_COUNT=${#TARGET_WS[@]}
+        # Reset all per-pane state
+        for ((j=0; j<TARGET_COUNT; j++)); do
+          k2="w${TARGET_WS[$j]}s${TARGET_SF[$j]}"
+          eval "fail_cnt_${k2}=0"
+          eval "breaker_ts_${k2}=0"
+          eval "last_hash_${k2}="
+          eval "last_enter_${k2}=0"
+          eval "last_fb_hash_${k2}="
+          eval "last_fb_time_${k2}=0"
+        done
+        break  # Only re-detect once per cycle
+      fi
+    done
   fi
 
   sleep 2
